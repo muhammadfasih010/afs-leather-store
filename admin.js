@@ -4,8 +4,8 @@
    Load order in the HTML: config.js -> storage.js -> api.js -> admin.js
    ============================================================ */
 
-let products = loadProducts();
-let selected = products[0] || null;
+let products = [];
+let selected = null;
 
 // ---- Password gate ----
 // admin.html is a standalone page, so it re-checks the password on
@@ -239,6 +239,23 @@ function renderAdminOrders(){
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Live from Firebase — this is the sync itself: any device that
+  // saves a product change updates this for every other device.
+  // Only the left-hand list is refreshed automatically so it never
+  // wipes out an edit you're in the middle of typing — the full
+  // editor only redraws when you explicitly click a product or Save.
+  initProducts(list => {
+    products = list;
+    if(!selected || !products.find(p => p.id === selected.id)) selected = products[0] || null;
+    renderAdminList();
+  });
+
+  // Live from Firebase — new orders / status changes from any
+  // device show up here without needing a refresh.
+  initOrders(() => {
+    renderAdminOrders();
+  });
+
   // Always require the password on this page — it's the direct
   // gateway to the admin panel, not just a shortcut from the site.
   openPwModal();
