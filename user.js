@@ -4,8 +4,8 @@
    Load order in the HTML: config.js -> storage.js -> user.js
    ============================================================ */
 
-let products = loadProducts();
-let selected = products[0];
+let products = [];
+let selected = null;
 let selections = {};
 let cart = getCart();
 
@@ -160,8 +160,20 @@ function renderMyOrders(){
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  renderProducts();
-  renderStudio();
+  // Live from Firebase — fires now, and again whenever the admin
+  // panel (on ANY device) changes the catalog.
+  initProducts(list => {
+    products = list;
+    if(!selected || !products.find(p => p.id === selected.id)) selected = products[0];
+    renderProducts();
+    renderStudio();
+  });
+
+  // Live from Firebase — keeps order status current everywhere.
+  initOrders(() => {
+    if($('#myOrdersDrawer')?.classList.contains('open')) renderMyOrders();
+  });
+
   renderCart();
 
   // My Orders nav
