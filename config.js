@@ -6,6 +6,23 @@
 
 const ASSET = 'https://afsleather-eebazv6q.manus.space/manus-storage/';
 
+/* ---- Firebase (Realtime Database) ----
+   Firebase SDK <script> tags must load BEFORE this file (see the
+   <head>/bottom of user.html and admin.html). This is what makes
+   product edits and orders sync live across every device instead
+   of staying stuck in one phone's local storage. */
+const firebaseConfig = {
+  apiKey: "AIzaSyAdJnO5Uv6GMTs6TJDJ7f2CHjYsMdDIW_Y",
+  authDomain: "leather-731bb.firebaseapp.com",
+  databaseURL: "https://leather-731bb-default-rtdb.firebaseio.com",
+  projectId: "leather-731bb",
+  storageBucket: "leather-731bb.firebasestorage.app",
+  messagingSenderId: "1067965421439",
+  appId: "1:1067965421439:web:fc1cf12f541f1e04feac4a"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
 const seedProducts = [
   { id:'jacket', name:'The Rider Jacket', category:'Jackets', price:38900, image:ASSET+'jacket_45bdb1d5.jpg', description:'A tailored silhouette with clean lines and soft structure.', groups:[
     { name:'Color', options:[
@@ -78,5 +95,4 @@ function nameToHex(name){
 function isLight(hex){
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
   return (r*299 + g*587 + b*114) / 1000 > 128;
-  }
-        
+         }
