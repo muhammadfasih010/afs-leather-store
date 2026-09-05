@@ -1,30 +1,56 @@
 /* ============================================================
    storage.js
-   Shared data layer — now backed by Firebase Realtime Database
-   (see firebaseConfig + db in config.js) instead of localStorage.
-   This is what makes an admin edit on one phone show up on the
-   live site on every device, instantly.
+   Real cloud database layer — Firebase Realtime Database.
 
-   - Products -> Firebase path "products"   (synced, shared)
-   - Orders   -> Firebase path "orders"     (synced, shared)
-   - Cart     -> localStorage                (stays per-device —
-     a shopping bag belongs to one visitor, not the whole site)
+   Products and orders are stored in Firebase, so a change made
+   in the admin panel on one device/phone shows up on every other
+   device — because everyone is now reading/writing the same
+   cloud database instead of their own browser's storage.
 
-   user.js / admin.js never talk to Firebase directly — everything
-   goes through the functions in this file, same as before.
+   The cart stays in THIS browser's localStorage only — a
+   shopping bag is personal and in-progress, it shouldn't follow
+   you to another phone (same behaviour you'd expect from any
+   normal store).
+
+   REQUIRES: firebase-app-compat.js and firebase-database-compat.js
+   loaded via <script> BEFORE this file (see user.html / admin.html).
+
+   IMPORTANT — Firebase Realtime Database rules:
+   This project has no login system, so the database rules must
+   allow open read/write, or every request here will fail with a
+   permission-denied error. In the Firebase console →
+   Realtime Database → Rules, set:
+     {
+       "rules": {
+         ".read": true,
+         ".write": true
+       }
+     }
+   This is fine for a small store front. If you ever add real user
+   accounts, tighten these rules to match.
    ============================================================ */
 
-let _products = [];
-let _orders = [];
+const firebaseConfig = {
+  apiKey: "AIzaSyAdJnO5Uv6GMTs6TJDJ7f2CHjYsMdDIW_Y",
+  authDomain: "leather-731bb.firebaseapp.com",
+  databaseURL: "https://leather-731bb-default-rtdb.firebaseio.com",
+  projectId: "leather-731bb",
+  storageBucket: "leather-731bb.firebasestorage.app",
+  messagingSenderId: "1067965421439",
+  appId: "1:1067965421439:web:fc1cf12f541f1e04feac4a"
+};
 
-// Removes any base64 data-URLs before persisting (keeps the DB small)
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// Removes any base64 data-URLs before using/persisting (keeps the database small)
 function stripBase64(arr){
-  return (arr || []).map(p => ({
+  return arr.map(p => ({
     ...p,
     image: p.image?.startsWith('data:') ? '' : p.image,
-    groups: (p.groups || []).map(g => ({
+    groups: p.groups.map(g => ({
       ...g,
-      options: (g.options || []).map(o => ({
+      options: g.options.map(o => ({
         ...o,
         image: o.image?.startsWith('data:') ? '' : o.image
       }))
@@ -32,59 +58,49 @@ function stripBase64(arr){
   }));
 }
 
-// ---- Products (shared / live across devices) ----
+// Firebase can return objects OR arrays depending on the keys — normalize to a plain array
+function toArray(val){
+  if(!val) return [];
+  return Array.isArray(val) ? val : Object.values(val);
+}
 
-// Starts listening to Firebase for the product catalog. Fires
-// onChange(products) immediately with whatever is currently there,
-// and again every time ANY device (including the admin panel)
-// changes it. If the database is empty (first time ever running
-// this site), it seeds it with the starting catalog from config.js.
-function initProducts(onChange){
+// ---- Products: live, shared across every device ----
+// callback(products) fires immediately with the current data, then again
+// every time ANY device changes the products (admin edits, deletes, etc.)
+function watchProducts(callback){
   const ref = db.ref('products');
-  ref.once('value', snap => {
-    if(!snap.exists()) ref.set(seedProducts);
-  });
   ref.on('value', snap => {
-    _products = stripBase64(snap.val() || seedProducts);
-    onChange(_products);
+    const val = snap.val();
+    if(!val){
+      // Nothing in the database yet (brand new project) — seed it once.
+      ref.set(seedProducts);
+      return; // set() triggers this same listener again with the real data
+    }
+    callback(stripBase64(toArray(val)));
+  }, err => {
+    console.error('Could not read products from Firebase:', err);
   });
 }
-
 function saveProducts(products){
-  _products = products;
-  db.ref('products').set(stripBase64(products));
+  return db.ref('products').set(products);
 }
 
-// ---- Orders (shared / live across devices) ----
-
-// Starts listening to Firebase for orders. Fires onChange(orders)
-// immediately, then again whenever a new order is placed or the
-// admin updates a status — from any device.
-function initOrders(onChange){
+// ---- Orders: live, shared across every device ----
+function watchOrders(callback){
   db.ref('orders').on('value', snap => {
-    const val = snap.val() || {};
-    _orders = Object.values(val);
-    onChange(_orders);
+    callback(toArray(snap.val()));
+  }, err => {
+    console.error('Could not read orders from Firebase:', err);
   });
 }
-
-function getOrders(){
-  return _orders;
-}
-
 function saveOrders(orders){
-  _orders = orders;
-  const byId = {};
-  orders.forEach(o => byId[o.id] = o);
-  db.ref('orders').set(byId);
+  return db.ref('orders').set(orders);
 }
 
-// ---- Cart (per-device, unchanged) ----
-
+// ---- Cart: local to this device only (not synced) ----
 function getCart(){
   return JSON.parse(localStorage.getItem('afs-cart-static') || '[]');
 }
-
 function saveCartData(cart){
   localStorage.setItem('afs-cart-static', JSON.stringify(cart));
 }
@@ -100,10 +116,12 @@ function statusColor(s){
   return map[s] || 'pending';
 }
 
-function trackOrder(id){
-  const order = _orders.find(o => o.id.toLowerCase() === id.toLowerCase());
+// Looks up an order inside an already-loaded orders array (no extra fetch needed —
+// both user.js and admin.js keep a live-updated copy via watchOrders above)
+function trackOrder(id, orders){
+  const order = orders.find(o => o.id.toLowerCase() === id.toLowerCase());
   if(!order) return `No order found for ${id}. Check the number and try again.`;
   let msg = `Order ${order.id} · ${order.status} · ${order.items.length} piece${order.items.length===1?'':'s'} · ${money(order.total)}`;
   if(order.eta) msg += ` · Expected: ${order.eta}`;
   return msg;
-}
+  }
